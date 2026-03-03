@@ -25,7 +25,10 @@ def define_dataloader(logger, opt):
         data_sampler = DistributedSampler(phase_dataset, shuffle=dataloader_args.get('shuffle', False),
                                           num_replicas=opt['world_size'], rank=opt['global_rank'])
         dataloader_args.update({'shuffle': False})  # sampler option is mutually exclusive with shuffle
-        ''' create dataloader and validation dataloader '''
+
+    if dataloader_args.get('num_workers', 0) > 0:
+        dataloader_args['persistent_workers'] = True
+
     dataloader = DataLoader(phase_dataset, sampler=data_sampler, worker_init_fn=worker_init_fn, **dataloader_args)
 
     ''' val_dataloader don't use DistributedSampler to run only GPU 0! '''

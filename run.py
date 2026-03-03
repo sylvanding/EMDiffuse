@@ -25,9 +25,9 @@ def main_worker(gpu, ngpus_per_node, opt):
                                              group_name='mtorch'
                                              )
     '''set seed and and cuDNN environment '''
+    Util.set_seed(opt['seed'])
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
-    Util.set_seed(opt['seed'])
 
     ''' set logger '''
     phase_logger = InfoLogger(opt)

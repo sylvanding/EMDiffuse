@@ -66,7 +66,9 @@ def set_gpu(args, distributed=False, rank=0):
         return None
     if distributed and isinstance(args, torch.nn.Module):
         return DDP(args.cuda(), device_ids=[rank], output_device=rank, broadcast_buffers=True,
-                   find_unused_parameters=True)
+                   find_unused_parameters=False)
+    elif isinstance(args, torch.Tensor):
+        return args.cuda(non_blocking=True)
     else:
         return args.cuda()
 
