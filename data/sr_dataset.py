@@ -143,9 +143,21 @@ class SuperResolutionDataset(data.Dataset):
         return img, gt
 
     def _read_patch_dataset(self, data_root):
-        """Read pre-cropped patch dataset (EMDiffuse-compatible format)."""
+        """Read pre-cropped patch dataset (EMDiffuse-compatible format).
+
+        Expected structure:
+            data_root/          (e.g. train_wf/)
+                {sample_id}/
+                    wf/
+                        0.tif, 1.tif, ...
+
+        GT is found by replacing 'train_wf' -> 'train_gt' and '/wf/' -> '/gt/' in path.
+        """
         img_paths = []
         gt_paths = []
+
+        gt_root = data_root.replace('train_wf', 'train_gt')
+
         for cell_num in sorted(os.listdir(data_root)):
             if cell_num.startswith('.'):
                 continue
@@ -156,10 +168,12 @@ class SuperResolutionDataset(data.Dataset):
                 level_path = os.path.join(cell_path, noise_level)
                 if not os.path.isdir(level_path):
                     continue
+                gt_level = noise_level.replace('wf', 'gt')
+                gt_level_path = os.path.join(gt_root, cell_num, gt_level)
                 for img_name in sorted(os.listdir(level_path)):
                     if img_name.endswith(('.tif', '.tiff', '.png')):
                         img_full = os.path.join(level_path, img_name)
-                        gt_full = img_full.replace('wf', 'gt')
+                        gt_full = os.path.join(gt_level_path, img_name)
                         if os.path.exists(gt_full):
                             img_paths.append(img_full)
                             gt_paths.append(gt_full)

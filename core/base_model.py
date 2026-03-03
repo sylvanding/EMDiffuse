@@ -52,15 +52,17 @@ class BaseModel():
             ''' print logged informations to the screen and tensorboard ''' 
             for key, value in train_log.items():
                 self.logger.info('{:5s}: {}\t'.format(str(key), value))
-            if self.epoch < 500:
-                if self.epoch % 100 == 0:
+
+            warmup_epochs = self.opt['train'].get('warmup_epochs', 500)
+            if self.epoch <= warmup_epochs:
+                if self.epoch % max(1, warmup_epochs // 5) == 0:
                     self.logger.info('Saving the self at the end of epoch {:.0f}'.format(self.epoch))
                     self.save_everything()
-            if self.epoch % self.opt['train']['save_checkpoint_epoch'] == 0 and self.epoch > 500:
+            if self.epoch % self.opt['train']['save_checkpoint_epoch'] == 0 and self.epoch > warmup_epochs:
                 self.logger.info('Saving the self at the end of epoch {:.0f}'.format(self.epoch))
                 self.save_everything()
 
-            if self.epoch % self.opt['train']['val_epoch'] == 0 and self.epoch > 500:
+            if self.epoch % self.opt['train']['val_epoch'] == 0 and self.epoch > warmup_epochs:
                 self.logger.info("\n\n\n------------------------------Validation Start------------------------------")
                 if self.val_loader is None:
                     self.logger.warning('Validation stop where dataloader is None, Skip it.')

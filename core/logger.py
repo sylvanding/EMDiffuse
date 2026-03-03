@@ -151,20 +151,21 @@ class LogTracker:
     """
     def __init__(self, *keys, phase='train'):
         self.phase = phase
-        self._data = pd.DataFrame(index=keys, columns=['total', 'counts', 'average'])
+        self.keys = list(keys)
         self.reset()
 
     def reset(self):
-        for col in self._data.columns:
-            self._data[col].values[:] = 0
+        self._total = {k: 0.0 for k in self.keys}
+        self._counts = {k: 0 for k in self.keys}
+        self._average = {k: 0.0 for k in self.keys}
 
     def update(self, key, value, n=1):
-        self._data.total[key] += value * n
-        self._data.counts[key] += n
-        self._data.average[key] = self._data.total[key] / self._data.counts[key]
+        self._total[key] += value * n
+        self._counts[key] += n
+        self._average[key] = self._total[key] / self._counts[key]
 
     def avg(self, key):
-        return self._data.average[key]
+        return self._average[key]
 
     def result(self):
-        return {'{}/{}'.format(self.phase, k):v for k, v in dict(self._data.average).items()}
+        return {'{}/{}'.format(self.phase, k): v for k, v in self._average.items()}
