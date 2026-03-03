@@ -1,0 +1,25 @@
+---
+description: DiffusePoint project conventions - coding standards, environment, data paths
+alwaysApply: true
+---
+
+# Project Conventions
+
+## Environment
+- Python 3.11, PyTorch 2.9.1, CUDA 13.0, RTX 5090
+- Conda env: `emdiffuse`, activate with `source ~/miniconda3/bin/activate emdiffuse`
+- Use `/home/djx/miniconda3/envs/emdiffuse/bin/python` for direct execution
+
+## Data Paths
+- Point cloud source: `/data0/djx/img2pc_2d/microtubules/`
+- Generated images & training data: `/data0/djx/EMDiffuse/`
+- Experiments/checkpoints: `/data0/djx/EMDiffuse/experiments/`
+- Code repo: `/home/djx/repos/EMDiffuse/`
+
+## Key Constraints
+- Diffusion must operate in **real image space** (no latent space / VAE)
+- All file output text in **English** (avoid Chinese encoding issues in plots/logs)
+- User communication in **Chinese**
+- Image size: 1024×1024, pixel size: 25 nm/pixel
+- Density maps: normalized [0, 1], saved as 16-bit TIFF
+- Training patches: 256×256, cropped from full images

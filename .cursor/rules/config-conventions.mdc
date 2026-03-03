@@ -1,0 +1,25 @@
+---
+description: JSON config file conventions for diffusion model training
+globs: "config/*.json"
+alwaysApply: false
+---
+
+# Config Conventions
+
+## Structure
+- `path.base_dir`: `/data0/djx/EMDiffuse/experiments`
+- `datasets.train.which_dataset.name`: `["data.sr_dataset", "SuperResolutionDataset"]`
+- `model.which_networks[0].args.unet.in_channel`: always 2 (cond + noisy)
+- `model.which_networks[0].args.unet.out_channel`: always 1
+
+## Creating New Configs
+- Copy from `WF2Density.json` as template
+- Update `name`, dataset paths, and `task` field
+- `task` should be `"super_resolution"` for our pipeline
+- Use `//` for comments (stripped by parser in `core/praser.py`)
+
+## Key Parameters
+- `inner_channel`: 64 for 5090 GPUs (32 for smaller GPUs)
+- `beta_schedule.train.n_timestep`: 2000
+- `beta_schedule.test.n_timestep`: 1000
+- `train.warmup_epochs`: controls checkpoint saving frequency

@@ -1,0 +1,32 @@
+---
+description: Python and PyTorch coding standards for this project
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python Standards
+
+## Style
+- Type hints for function signatures
+- Dataclasses for config objects (see `scripts/utils/imaging.py`)
+- `np.random.default_rng(seed)` not `np.random.seed()`
+
+## Data Pipeline Pattern
+```python
+# Scripts use argparse, print progress, save metadata JSON
+def main():
+    parser = argparse.ArgumentParser(description='...')
+    # ... args
+    # Print banner with params
+    # Process with progress logging
+    # Save metadata.json alongside outputs
+```
+
+## Dataset Class Pattern
+- GT path derived from input path: `train_wf/` → `train_gt/`, `/wf/` → `/gt/`
+- Never use `str.replace('wf', 'gt')` on full paths (breaks `wf2density`)
+- Use explicit path construction instead
+
+## Pandas Compatibility
+- Don't use `df[col].values[:] = 0` (read-only in newer pandas)
+- Use dict-based tracking instead of DataFrame for metrics (see `LogTracker`)
