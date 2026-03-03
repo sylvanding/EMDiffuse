@@ -1,235 +1,239 @@
-# EMDiffuse
+# DiffusePoint: Diffusion-based 2D Super-Resolution for Point Cloud Recovery
 
-This repository contains the official Pytorch implementation of our paper: **EMDiffuse: A Diffusion-based Deep Learning Method Augmenting Ultrastructural Imaging and Volume Electron Microscopy** accepted by [Nature Communications](https://www.nature.com/articles/s41467-024-49125-z).
+A diffusion-based framework for converting low-resolution microscopy images (WF/SIM) into high-resolution probability density maps, enabling precise point cloud reconstruction from blurred inputs.
 
-EMDiffuse offers a toolkit for applying diffusion models to electron microscopy (EM) images, designed to enhance ultrastructural imaging in EM and extend the capabilities of volume electron microscopy (vEM). We have tailored the diffusion model for EM applications, developing **EMDiffuse-n** for EM denoising, **EMDiffuse-r** for EM super-resolution, and **vEMDiffuse-i** and **vEMDiffuse-a** for generating isotropic resolution data from anisotropic volumes in vEM.  
+## Principle
 
-A selection of model weights is available at  [EMDiffuse_model_weight](https://connecthkuhk-my.sharepoint.com/:f:/g/personal/u3590540_connect_hku_hk/EtSvqrIyrNREim5dJfabx2ABMLNhwk2Z9EsJDD4w6mls8g?e=OdP4Vq). Download them and place them in the `./experiments` folder.  The vEMDiffuse-i model was trained on the  [Openorgnelle liver dataset](https://doi.org/10.25378/janelia.16913047.v1). And vEMDiffuse-a was trained on the [MICrONS multi-area dataset](https://www.microns-explorer.org/). 
+### Real-Space Diffusion Super-Resolution
 
-All results, including training and inference, will be stored in a newly created folder under `./experiments`. 
+This project uses a **Denoising Diffusion Probabilistic Model (DDPM)** operating entirely in **real image space** (no latent encoding) to learn the mapping from low-resolution microscopy images to high-resolution probability density maps.
 
-Running the diffusion process on a **GPU** is highly recommended for both training and testing.
+**Forward Process:** During training, Gaussian noise is progressively added to the ground truth density map $y_0$ over $T$ timesteps:
 
-For more information, please visit our webpage: https://www.haibojianglab.com/emdiffuse.
+$$y_t = \sqrt{\bar{\alpha}_t} \cdot y_0 + \sqrt{1 - \bar{\alpha}_t} \cdot \epsilon, \quad \epsilon \sim \mathcal{N}(0, I)$$
 
-Should you have any questions regarding the code, please do not hesitate to contact us.
+**Reverse Process:** A UNet $\epsilon_\theta$ is trained to predict the noise $\epsilon$ given the noisy image $y_t$, the conditioning input (WF/SIM image), and the noise level $\bar{\alpha}_t$:
 
-### Update:
+$$\hat{\epsilon} = \epsilon_\theta([y_{cond}, y_t], \bar{\alpha}_t)$$
 
-1. Experiments on anisotropic volumes with fewer layers (e.g., 128 layers) are now possible. Given our input size 256, we duplicate the anisotropic volume along the axial axis before proceeding with vEMDiffuse-a training. (15/08/2023)
+**Inference:** Starting from pure Gaussian noise, the model iteratively denoises to produce a clean density map, conditioned on the input microscopy image. Each reverse step:
 
-### Dependency
+$$y_{t-1} = \mu_\theta(y_t, t) + \sigma_t \cdot z, \quad z \sim \mathcal{N}(0, I)$$
 
-Please install PyTorch (=1.13) before you run the code. We strongly recommend you install Anaconda3, where we use Python 3.8.  
+### Pipeline Overview
 
 ```
-conda create --name emdiffuse python=3.8
+Point Cloud (CSV, nm coordinates)
+    |
+    v
+2D Projection (xy plane)
+    |
+    v
+Simulated Microscopy Images:
+    - WF  (Widefield, PSF FWHM = 300nm)
+    - SIM (Structured Illumination, PSF FWHM = 120nm)
+    - STED (Stimulated Emission Depletion, PSF FWHM = 50nm)
+    - Density Map (Ground truth, sigma = 25nm)
+    |
+    v
+Diffusion Model Training:
+    - WF  -> Density Map
+    - SIM -> Density Map
+    |
+    v
+Inference: Input Image -> Predicted Density Map
+    |
+    v
+Point Cloud Sampling (multinomial from density)
+    |
+    v
+Evaluation (compare with ground truth)
+```
+
+### Key Design Choices
+
+- **Real-space diffusion**: No VAE or latent encoding. Diffusion operates directly on pixel values. This preserves fine structural details (e.g., individual microtubule filaments) that would be lost in latent space compression.
+- **Conditional generation**: The UNet takes 2 input channels — the conditioning image (WF/SIM) and the current noisy estimate — enabling the model to use structural information from the input.
+- **Probability density output**: The model outputs a normalized density map from which arbitrary numbers of points can be sampled via multinomial sampling with sub-pixel jittering.
+
+## Environment Setup
+
+Tested on Ubuntu with NVIDIA RTX 5090 GPUs, Python 3.11, CUDA 13.0.
+
+```bash
+conda create -n emdiffuse python=3.11 -y
 conda activate emdiffuse
+pip install torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cu130
 pip install -r requirements.txt
 ```
 
-## Jupyter notebooks 
+## Quick Start
 
-Explore our Jupyter notebooks for step-by-step tutorials:
+### Step 1: Convert Point Clouds to Images
 
-- [2D EM denoising](https://github.com/Luchixiang/EMDiffuse/tree/master/example/denoise)
-- [2D EM super-resolution](https://github.com/Luchixiang/EMDiffuse/tree/master/example/super-res)
-- [Isotropic vEM reconstruction with isotropic training data](https://github.com/Luchixiang/EMDiffuse/tree/master/example/vEMDiffuse-i)
-- [Isotropic vEM reconstruction without isotropic training data](https://github.com/Luchixiang/EMDiffuse/tree/master/example/vEMDiffuse-a)
-
-In order to run the notebooks, install jupyter in your conda environment or use [Google Colab](https://colab.research.google.com/). 
-
-```
-pip install jupyter
-```
-
-## Instructions for EMDiffuse-n (2D EM denoising)
-
-### Training:
-#### Step 1: Download the Dataset
-Download the dataset from https://zenodo.org/records/10205819.
-#### Step 2:  Align and Crop
-Register and crop patches for model training. For our dataset with multiple noise levels:
-
-```python
-cd RAFT/core
-python register.py --path /data/EMDiffuse_dataset/brain_train --tissue Brain --patch_size 256 --overlap 0.125
-```
-
-Replace the `path` with your dataset's file path. `patch_size` should be a power of two or divisible by 8, and `overlap` sets the overlap ratio of adjacent patches. 
-
-For transfer learning on other samples, replace ``tissue`` with the target, such as the `Liver`, `Heart`, or `BM`. 
-
-For your own denoise dataset with file structure:
-
-```
-Denoise_dataset
-	img
-		1.tif
-		2.tif
-		3.tif
-		...
-	gt
-		1.tif
-		2.tif
-		3.tif
-		...
-```
-
-```
-cd RAFT/core
-python register_custom.py --path /data/EMDiffuse_dataset/brain_train --patch_size 256 --overlap 0.125
-```
-
-Replace the `path` with your dataset's file path.
-
-#### Step 3: Model Training
-
-```python
-cd ../..
-python run.py -c config/EMDiffuse-n.json -b 16 --gpu 0,1,2,3 --port 20022 --path /data/EMDiffuse_dataset/brain_train/denoise/train_wf --lr 5e-5
-```
-
-`gpu` denotes the GPU devices to be used during training. Multiple GPU training is supported. 
-
-Both the model's state and its training metrics are automatically saved within a newly created directory, `./experiments/train_EMDiffuse-r_time`. Here, `time` is a placeholder for the actual timestamp when the training session begins. 
-
-### Inference
-
-#### Step 1: Download the Dataset
-
-Download the dataset from https://zenodo.org/records/10205819.
-
-#### Step 2: Crop Image
-
-```python
-python test_pre.py --path /data/EMDiffuse_dataset/brain_test --task denoise
-```
-
-#### Step 3: Testing
-
-Download the [model weight](https://connecthkuhk-my.sharepoint.com/:f:/g/personal/u3590540_connect_hku_hk/EtSvqrIyrNREim5dJfabx2ABMLNhwk2Z9EsJDD4w6mls8g?e=OdP4Vq) and place them in the `./experiments` folder. 
-
-```python
-python run.py -p test -c config/EMDiffuse-n.json --gpu 0 -b 60 --path /data/EMDiffuse_dataset/brain_test/denoise_test_crop_patches --resume ./experiments/EMDiffuse-n/best --mean 1 --step 1000
-```
-
-The diffusion model samples one plausible solution from the learned solution distribution. `mean` denotes the number of outputs to generate and averaging (each output and averaged output will be saved). `resume` indicates the path to the model's weight file. `step` controls the number of diffusion steps, with more steps generally leading to higher image quality.
-
-## Instructions for EMDiffuse-r (2D EM super-resolution)
-
-### Training:
-
-#### Step 1: Download the Dataset
-
-Download the dataset from https://zenodo.org/records/10205819.
-
-#### Step 2: Align and Crop
-
-```python
-cd RAFT/core
-python super_res_register.py --path /data/EMDiffuse_dataset/brain_train --patch_size 128 --overlap 0.125
-```
-
-#### Step 3: Model Training
-
-```python
-cd ../..
-python run.py -c config/EMDiffuse-r.json -b 16 --gpu 0,1,2,3 --port 20022 --path /data/EMDiffuse_dataset/brain_train/zoom/train_wf --lr 5e-5
-```
-
-### Inference
-
-#### Step 1: Download the Dataset
-
-Download the dataset from https://zenodo.org/records/10205819.
-
-#### Step 2 Crop Images
-
-```python
-python test_pre.py --path /data/EMDiffuse_dataset/brain_test --task super
-```
-
-#### Step 3 Testing
-
-Download the [model weight](https://connecthkuhk-my.sharepoint.com/:f:/g/personal/u3590540_connect_hku_hk/EtSvqrIyrNREim5dJfabx2ABMLNhwk2Z9EsJDD4w6mls8g?e=OdP4Vq) and place them in the `./experiments` folder. 
-
-```python
-python run.py -p test -c config/EMDiffuse-r.json --gpu 0 -b 60 --path /data/EMDiffuse_dataset/brain_test/super_test_crop_patches --resume ./experiments/EMDiffuse-r/best --mean 1 --step 1000
-```
-
-## Instructions for EMDiffuse-n and EMDiffuse-r Inference with Your Own EM Dataset
-
-**These instructions are tailored for our denoising and super-resolution datasets. For your own dataset, you may need to adjust the cropping and registration codes to suit your data format. Here's a simple demonstration for performing inference on a dataset with the following file structure:**
+Convert point cloud CSVs to simulated microscopy images (WF/SIM/STED) and ground truth density maps.
 
 ```bash
-test_images:
-		image1.tif
-		image2.tif
-		....
+# Test with 3 samples first (with visualization):
+python scripts/convert_pointcloud.py \
+    --input_dir /data0/djx/img2pc_2d/microtubules \
+    --output_dir /data0/djx/EMDiffuse/images/microtubules \
+    --samples 3 --visualize
+
+# Convert all 1024 samples:
+python scripts/convert_pointcloud.py \
+    --input_dir /data0/djx/img2pc_2d/microtubules \
+    --output_dir /data0/djx/EMDiffuse/images/microtubules \
+    --samples all
 ```
 
-#### Step1: Crop Image
+**Parameters:**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--image_size` | 1024 | Output image dimensions (pixels) |
+| `--pixel_size` | 25.0 | Pixel size in nm |
+| `--modalities` | all | Which modalities to generate (wf/sim/sted/density) |
+| `--structure_type` | microtubules | Biological structure label |
 
-```python
-python crop_single_file.py --path ./test_images --task denoise 
-```
-#### Step 2: Testing
+### Step 2: Prepare Training Data
 
-```python
-python run.py -p test -c config/EMDiffuse-n.json --gpu 0 -b 60 --path ./test_images/denoise_test_crop_patches/ --resume ./experiments/EMDiffuse-n/best --mean 1 --step 1000
-```
+Crop image pairs into patches for diffusion model training.
 
-## Instructions for vEMDiffuse (Isotropic Reconstruction in vEM)
+```bash
+# WF -> Density training set:
+python scripts/prepare_training_data.py \
+    --image_dir /data0/djx/EMDiffuse/images/microtubules \
+    --output_dir /data0/djx/EMDiffuse/training/wf2density \
+    --input_modality wf --target_modality density \
+    --patch_size 256 --overlap 0.125 --train_ratio 0.9
 
-### Training
-
-#### Data Preparation
-
-Download or prepare your vEM training data. The training file structure should be like:
-
-```
-vEM_data
-	0.tif // The first layer
-	1.tif // The second layer
-	...
-	n.tif // The (n+1)th layer
-```
-
-#### Training vEMDiffuse-i with Isotropic Training Data
-```
-python run.py -c config/vEMDiffuse-i.json -b 16 --gpu 0,1,2,3 --port 20022 --path ./vEM_data -z 6 --lr 5e-5
+# SIM -> Density training set:
+python scripts/prepare_training_data.py \
+    --image_dir /data0/djx/EMDiffuse/images/microtubules \
+    --output_dir /data0/djx/EMDiffuse/training/sim2density \
+    --input_modality sim --target_modality density \
+    --patch_size 256 --overlap 0.125 --train_ratio 0.9
 ```
 
-``-z`` means the subsampling factor of the Z axis. For example, to reconstruct an 8 nm x 8 nm x 8 nm volume from an 8 nm x 8 nm x 48 nm volume, the subsampling factor should be 6. 
+### Step 3: Train Diffusion Model
 
-####  Training vEMDiffuse-a w/o Isotropic Training Data
+```bash
+# Train WF -> Density model (multi-GPU):
+python run.py -c config/WF2Density.json -b 8 --gpu 0,1,2,3 --port 20022 \
+    --path /data0/djx/EMDiffuse/training/wf2density/train_wf --lr 5e-5
 
-Slice along YZ view:
- ```
- python vEMa_pre.py --path ./vEM_data
- ```
-
-Training
-
-```
-python run.py -c config/vEMDiffuse-a.json -b 16 --gpu 0,1,2,3 --port 20022 --path ./vEM_data/transposed -z 6 --lr 5e-5
+# Train SIM -> Density model:
+python run.py -c config/SIM2Density.json -b 8 --gpu 0,1,2,3 --port 20023 \
+    --path /data0/djx/EMDiffuse/training/sim2density/train_wf --lr 5e-5
 ```
 
-### Testing 
+Training checkpoints and logs are saved to `/data0/djx/EMDiffuse/experiments/`.
 
-To test, prepare an anisotropic volume. Execute the model using the appropriate configuration and model weights for isotropic reconstruction.
+### Step 4: Inference
 
-```
-vEM_test_data
-	0.tif // The first layer
-	1.tif // The second layer
-	...
-	n.tif // The (n+1)th layer
-```
-
-```
-python run.py -p test -c config/vEMDiffuse-i.json --gpu 0 -b 16 --path ./vEM_test_data/ -z 6 --resume ./experiments/vEMDiffuse-i/best --mean 1 --step 200
+```bash
+python run.py -p test -c config/WF2Density.json --gpu 0 -b 8 \
+    --path /data0/djx/EMDiffuse/training/wf2density/test_wf \
+    --resume /data0/djx/EMDiffuse/experiments/WF2Density/best \
+    --mean 1 --step 1000
 ```
 
-Adjust the model weight directory to where your best model weights are saved. 
+### Step 5: Sample Points from Density Maps
+
+```bash
+# Sample a specific number of points from predicted density:
+python scripts/sample_from_density.py \
+    --density_map /data0/djx/EMDiffuse/results/density/0001.tif \
+    --n_points 50000 \
+    --output /data0/djx/EMDiffuse/results/sampled/0001.csv \
+    --metadata /data0/djx/EMDiffuse/images/microtubules/metadata.json \
+    --sample_id 0001 --visualize
+```
+
+### Step 6: Evaluate Results
+
+```bash
+# Compare predicted density with ground truth:
+python scripts/evaluate.py \
+    --pred_density /data0/djx/EMDiffuse/results/density/0001.tif \
+    --gt_density /data0/djx/EMDiffuse/images/microtubules/density/0001.tif \
+    --output_dir /data0/djx/EMDiffuse/results/evaluation \
+    --visualize
+```
+
+## Project Structure
+
+```
+EMDiffuse/
+├── config/                          # Model configurations
+│   ├── WF2Density.json              # Widefield -> Density
+│   ├── SIM2Density.json             # SIM -> Density
+│   ├── EMDiffuse-n.json             # (legacy) EM denoising
+│   └── EMDiffuse-r.json             # (legacy) EM super-resolution
+├── scripts/                         # Data processing pipeline
+│   ├── convert_pointcloud.py        # Point cloud -> images
+│   ├── prepare_training_data.py     # Crop patches for training
+│   ├── sample_from_density.py       # Density map -> point cloud
+│   ├── evaluate.py                  # Quality evaluation
+│   └── utils/
+│       ├── imaging.py               # PSF simulation, noise, density
+│       └── pointcloud.py            # Point cloud I/O, transforms
+├── models/                          # Diffusion model
+│   ├── EMDiffuse_model.py           # Training/inference logic (DiReP)
+│   ├── EMDiffuse_network.py         # DDPM network (forward/reverse)
+│   └── guided_diffusion_modules/
+│       └── unet.py                  # UNet backbone
+├── data/
+│   ├── dataset.py                   # Original dataset classes
+│   └── sr_dataset.py                # Super-resolution dataset
+├── core/                            # Training infrastructure
+│   ├── base_model.py                # Training loop
+│   ├── base_network.py              # Weight initialization
+│   ├── praser.py                    # Config parser
+│   └── logger.py                    # Logging utilities
+├── run.py                           # Main entry point
+├── requirements.txt
+└── docs/plans/                      # Implementation plans
+```
+
+## Imaging Parameters
+
+| Modality | PSF FWHM (nm) | σ (pixels @ 25nm/px) | Description |
+|----------|:------------:|:-------------------:|-------------|
+| WF | 300 | 5.1 | Widefield — diffraction limited |
+| SIM | 120 | 2.0 | Structured Illumination — ~2x beyond diffraction |
+| STED | 50 | 0.85 | Stimulated Emission Depletion — sub-diffraction |
+| Density | 25 | 1.0 | Ground truth probability density |
+
+## Extensibility
+
+The pipeline is designed to support different biological structures. To add a new structure type:
+
+1. Place point cloud CSVs in a folder with pattern `{structure}_{id}_{count}k/`
+2. Set `--structure_type` and `--pattern` in the conversion script
+3. Adjust PSF/noise parameters in `scripts/utils/imaging.py` if needed
+4. Create new config files based on `WF2Density.json`
+
+Supported / planned structures:
+- Microtubules
+- Mitochondria (planned)
+- Endoplasmic reticulum (planned)
+
+## Data Format
+
+### Input: Point Cloud CSV
+```
+x [nm],y [nm],z [nm]
+22731.510,10357.466,55.271
+15153.398,836.224,1205.677
+...
+```
+
+### Output: TIFF Images
+- 16-bit unsigned integer (0-65535)
+- 1024×1024 pixels at 25 nm/pixel
+- FOV: 25.6 µm × 25.6 µm
+
+## Acknowledgments
+
+Based on the [EMDiffuse](https://github.com/Luchixiang/EMDiffuse) framework (Nature Communications, 2024). Modified for 2D super-resolution microscopy and point cloud recovery.

@@ -1,15 +1,13 @@
-torch>=1.13.0
-torchvision>=0.14.0
+# PyTorch (install separately with CUDA support)
+# pip install torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cu130
+
 matplotlib
 tensorboard
 scipy
 tifffile
 opencv-python
 pandas
-imutils
-image_registration
-numpy>=1.23.0
-pytest
-warmup_scheduler
+numpy
 tqdm
 imagecodecs
+scikit-image

@@ -1,0 +1,145 @@
+{
+    "name": "SIM2Density",
+    "norm": true,
+    "percent": false,
+    "gpu_ids": [0, 1, 2, 3],
+    "seed" : 42,
+    "finetune_norm": false,
+    "task" : "super_resolution",
+    "path": {
+        "base_dir": "/data0/djx/EMDiffuse/experiments",
+        "code": "code",
+        "tb_logger": "tb_logger",
+        "results": "results",
+        "checkpoint": "checkpoint",
+        "resume_state": null
+    },
+
+    "datasets": {
+        "train": {
+            "which_dataset": {
+                "name": ["data.sr_dataset", "SuperResolutionDataset"],
+                "args":{
+                    "data_root": "/data0/djx/EMDiffuse/training/sim2density/train_wf",
+                    "data_len": -1,
+                    "norm": true,
+                    "percent": false,
+                    "patch_mode": true,
+                    "image_size": [256, 256]
+                }
+            },
+            "dataloader":{
+                "validation_split": 0.1,
+                "args":{
+                    "batch_size": 8,
+                    "num_workers": 8,
+                    "shuffle": true,
+                    "pin_memory": true,
+                    "drop_last": true
+                },
+                "val_args":{
+                    "batch_size": 4,
+                    "num_workers": 4,
+                    "shuffle": false,
+                    "pin_memory": true,
+                    "drop_last": false
+                }
+            }
+        },
+        "test": {
+            "which_dataset": {
+                "name": ["data.sr_dataset", "SuperResolutionDataset"],
+                "args":{
+                    "data_root": "/data0/djx/EMDiffuse/training/sim2density/test_wf",
+                    "norm": true,
+                    "percent": false,
+                    "patch_mode": true,
+                    "phase": "val",
+                    "image_size": [256, 256]
+                }
+            },
+            "dataloader":{
+                "args":{
+                    "batch_size": 8,
+                    "num_workers": 4,
+                    "pin_memory": true
+                }
+            }
+        }
+    },
+
+    "model": {
+        "which_model": {
+            "name": ["models.EMDiffuse_model", "DiReP"],
+            "args": {
+                "sample_num": 8,
+                "task": "super_resolution",
+                "ema_scheduler": {
+                    "ema_start": 1,
+                    "ema_iter": 1,
+                    "ema_decay": 0.9999
+                },
+                "optimizers": [
+                    { "lr": 5e-5, "weight_decay": 0}
+                ]
+            }
+        },
+        "which_networks": [
+            {
+                "name": ["models.EMDiffuse_network", "Network"],
+                "args": {
+                    "init_type": "kaiming",
+                    "module_name": "guided_diffusion",
+                    "norm": true,
+                    "unet": {
+                        "in_channel": 2,
+                        "out_channel": 1,
+                        "inner_channel": 64,
+                        "channel_mults": [1, 2, 4, 8],
+                        "attn_res": [16],
+                        "num_head_channels": 32,
+                        "res_blocks": 2,
+                        "dropout": 0.2,
+                        "image_size": 256
+                    },
+                    "beta_schedule": {
+                        "train": {
+                            "schedule": "linear",
+                            "n_timestep": 2000,
+                            "linear_start": 1e-6,
+                            "linear_end": 0.01
+                        },
+                        "test": {
+                            "schedule": "linear",
+                            "n_timestep": 1000,
+                            "linear_start": 1e-4,
+                            "linear_end": 0.09
+                        }
+                    }
+                }
+            }
+        ],
+        "which_losses": [
+            "mse_loss"
+        ],
+        "which_metrics": [
+            "mae"
+        ]
+    },
+
+    "train": {
+        "n_epoch": 1e8,
+        "n_iter": 1e8,
+        "val_epoch": 20,
+        "save_checkpoint_epoch": 20,
+        "log_iter": 1e4,
+        "tensorboard" : true
+    },
+
+    "debug": {
+        "val_epoch": 1,
+        "save_checkpoint_epoch": 1,
+        "log_iter": 10,
+        "debug_split": 50
+    }
+}
