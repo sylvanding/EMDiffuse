@@ -96,24 +96,63 @@ class Network(BaseNetwork):
         return model_mean + noise * (0.5 * model_log_variance).exp(), y_0_hat
 
     @torch.no_grad()
-    def restoration(self, y_cond, y_t=None, y_0=None, mask=None, sample_num=8, adjust=False):
+    def restoration(self, y_cond, y_t=None, y_0=None, mask=None, sample_num=8, adjust=False, ddim_steps=None):
         b, *_ = y_cond.shape
 
-        assert self.num_timesteps > sample_num, 'num_timesteps must greater than sample_num'
-        sample_inter = (self.num_timesteps // sample_num)
         if y_0 is not None:
             y_t = default(y_t, lambda: torch.randn_like(y_0))
         else:
             y_t = default(y_t, lambda: torch.randn_like(y_cond))
         ret_arr = y_t
 
-        for i in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling loop time step', total=self.num_timesteps):
+        if ddim_steps is not None and ddim_steps < self.num_timesteps:
+            return self._ddim_sample(y_t, y_cond, y_0, mask, sample_num, ddim_steps, ret_arr)
+
+        assert self.num_timesteps > sample_num, 'num_timesteps must greater than sample_num'
+        sample_inter = (self.num_timesteps // sample_num)
+
+        for i in tqdm(reversed(range(0, self.num_timesteps)), desc='DDPM sampling', total=self.num_timesteps):
             t = torch.full((b,), i, device=y_cond.device, dtype=torch.long)
             y_t, y_0_hat = self.p_sample(y_t, t, y_cond=y_cond, adjust=adjust)
             if mask is not None:
                 y_t = y_0 * (1. - mask) + mask * y_t
             if i % sample_inter == 0:
                 ret_arr = torch.cat([ret_arr, y_0_hat], dim=0)
+        return y_t, ret_arr
+
+    @torch.no_grad()
+    def _ddim_sample(self, y_t, y_cond, y_0, mask, sample_num, ddim_steps, ret_arr):
+        """DDIM deterministic sampling with fewer steps (eta=0)."""
+        b = y_t.shape[0]
+        timesteps = np.linspace(0, self.num_timesteps - 1, ddim_steps, dtype=np.int64)
+        sample_inter = max(1, ddim_steps // sample_num)
+
+        for idx in tqdm(reversed(range(len(timesteps))), desc='DDIM sampling ({} steps)'.format(ddim_steps), total=len(timesteps)):
+            i = int(timesteps[idx])
+            t = torch.full((b,), i, device=y_t.device, dtype=torch.long)
+
+            noise_level = extract(self.gammas, t, x_shape=(1, 1)).to(y_t.device)
+            predicted_noise = self.denoise_fn(torch.cat([y_cond, y_t], dim=1), noise_level)
+            y_0_hat = self.predict_start_from_noise(y_t, t=t, noise=predicted_noise)
+
+            if self.norm:
+                y_0_hat.clamp_(-1., 1.)
+            else:
+                y_0_hat.clamp_(0., 1.)
+
+            if idx > 0:
+                t_prev = torch.full((b,), int(timesteps[idx - 1]), device=y_t.device, dtype=torch.long)
+                gamma_prev = extract(self.gammas, t_prev, y_t.shape)
+            else:
+                gamma_prev = torch.ones_like(y_t)
+
+            y_t = gamma_prev.sqrt() * y_0_hat + (1 - gamma_prev).sqrt() * predicted_noise
+
+            if mask is not None:
+                y_t = y_0 * (1. - mask) + mask * y_t
+            if idx % sample_inter == 0:
+                ret_arr = torch.cat([ret_arr, y_0_hat], dim=0)
+
         return y_t, ret_arr
 
     def forward(self, y_0, y_cond=None, mask=None, noise=None):

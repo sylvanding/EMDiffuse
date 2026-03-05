@@ -41,23 +41,22 @@ class DiReP(BaseModel):
         else:
             self.ema_scheduler = None
 
-        ''' networks can be a list, and must convert by self.set_device function if using multiple GPU. '''
-        self.netG = self.set_device(self.netG, distributed=self.opt['distributed'])
+        self.netG = self.set_device(self.netG)
         if self.ema_scheduler is not None:
-            self.netG_EMA = self.set_device(self.netG_EMA, distributed=self.opt['distributed'])
+            self.netG_EMA = self.set_device(self.netG_EMA)
         self.load_networks()
 
         self.optG = torch.optim.Adam(list(filter(lambda p: p.requires_grad, self.netG.parameters())), **optimizers[0])
         self.optimizers.append(self.optG)
-        # self.schedulers.append(GradualWarmupScheduler(self.optG, multiplier=1, total_epoch=20))
         self.resume_training()
 
-        if self.opt['distributed']:
-            self.netG.module.set_loss(self.loss_fn)
-            self.netG.module.set_new_noise_schedule(phase=self.phase)
-        else:
-            self.netG.set_loss(self.loss_fn)
-            self.netG.set_new_noise_schedule(phase=self.phase)
+        self.netG.set_loss(self.loss_fn)
+        self.netG.set_new_noise_schedule(phase=self.phase)
+
+        if self.is_distributed and self.phase == 'train':
+            self.netG = nn.parallel.DistributedDataParallel(
+                self.netG, device_ids=[self.opt['local_rank']])
+            self.logger.info('Wrapped netG with DDP on rank {}'.format(self.opt['local_rank']))
 
         ''' can rewrite in inherited class for more informations logging '''
         self.train_metrics = LogTracker(*[m.__name__ for m in losses], phase='train')
@@ -66,6 +65,13 @@ class DiReP(BaseModel):
 
         self.sample_num = sample_num
         self.task = task
+
+    @property
+    def _netG_module(self):
+        """Unwrap DataParallel/DDP to access the raw Network module."""
+        if isinstance(self.netG, (nn.DataParallel, nn.parallel.DistributedDataParallel)):
+            return self.netG.module
+        return self.netG
 
     def set_input(self, data):
         ''' must use set_device in tensor '''
@@ -120,6 +126,8 @@ class DiReP(BaseModel):
             self.set_input(train_data)
             self.optG.zero_grad()
             loss = self.netG(self.gt_image, self.cond_image, mask=self.mask)
+            if loss.dim() > 0:
+                loss = loss.mean()
             loss.backward()
             self.optG.step()
 
@@ -143,27 +151,21 @@ class DiReP(BaseModel):
         self.netG.eval()
         self.val_metrics.reset()
         with torch.no_grad():
-            for val_data in tqdm.tqdm(self.val_loader):
-                self.set_input(val_data)
-                if self.opt['distributed']:
-                    self.output, self.visuals, self.gt_image = self.netG.module.validation(self.cond_image,
-                                                                             y_0=self.gt_image,
-                                                                             sample_num=self.sample_num)
-                else:
-                    self.output, self.visuals, self.gt_image = self.netG.validation(self.cond_image,
-                                                                            y_0=self.gt_image,
-                                                                            sample_num=self.sample_num)
+            val_data = next(iter(self.val_loader))
+            self.set_input(val_data)
+            self.output, self.visuals, self.gt_image = self._netG_module.validation(self.cond_image,
+                                                                    y_0=self.gt_image,
+                                                                    sample_num=self.sample_num)
 
-                self.iter += self.batch_size
-                self.writer.set_iter(self.epoch, self.iter, phase='val')
+            self.writer.set_iter(self.epoch, self.epoch, phase='val')
 
-                for met in self.metrics:
-                    key = met.__name__
-                    value = met(self.gt_image, self.output)
-                    self.val_metrics.update(key, value)
-                    self.writer.add_scalar(key, value)
-                # self.writer.save_images(self.save_current_results(), norm=self.opt['norm'])
+            for met in self.metrics:
+                key = met.__name__
+                value = met(self.gt_image, self.output)
+                self.val_metrics.update(key, value)
+                self.writer.add_scalar(key, value)
 
+        torch.cuda.empty_cache()
         return self.val_metrics.result()
 
     def test(self):
@@ -174,15 +176,10 @@ class DiReP(BaseModel):
                 self.set_input(phase_data)
                 self.outputs = []
                 for i in range(self.mean):
-                    if self.opt['distributed']:
-                        output, self.visuals = self.netG.module.restoration(self.cond_image,
-                                                                            sample_num=self.sample_num,
-                                                                            y_0=self.gt_image, path=self.path)
-                    else:
-                        output, self.visuals = self.netG.restoration(self.cond_image,
-                                                                     sample_num=self.sample_num,
-                                                                     y_0=self.gt_image,
-                                                                     path=self.path)
+                    output, self.visuals = self._netG_module.restoration(self.cond_image,
+                                                                 sample_num=self.sample_num,
+                                                                 y_0=self.gt_image,
+                                                                 path=self.path)
                     self.outputs.append(output)
 
                 if self.mean > 1:
@@ -209,70 +206,14 @@ class DiReP(BaseModel):
             self.logger.info('{:5s}: {}\t'.format(str(key), value))
 
     def load_networks(self):
-        """ save pretrained model and training state, which only do on GPU 0. """
-        if self.opt['distributed']:
-            netG_label = self.netG.module.__class__.__name__
-        else:
-            netG_label = self.netG.__class__.__name__
+        netG_label = self.netG.__class__.__name__
         self.load_network(network=self.netG, network_label=netG_label, strict=False)
         if self.ema_scheduler is not None:
             self.load_network(network=self.netG_EMA, network_label=netG_label + '_ema', strict=False)
 
     def save_everything(self):
-        """ load pretrained model and training state. """
-        if self.opt['distributed']:
-            netG_label = self.netG.module.__class__.__name__
-        else:
-            netG_label = self.netG.__class__.__name__
+        netG_label = self._netG_module.__class__.__name__
         self.save_network(network=self.netG, network_label=netG_label)
         if self.ema_scheduler is not None:
             self.save_network(network=self.netG_EMA, network_label=netG_label + '_ema')
         self.save_training_state()
-
-    def load_network(self, network, network_label, strict=True):
-        if self.opt['path']['resume_state'] is None:
-            return
-        self.logger.info('Beign loading pretrained model [{:s}] ...'.format(network_label))
-
-        model_path = "{}_{}.pth".format(self.opt['path']['resume_state'], network_label)
-
-        if not os.path.exists(model_path):
-            self.logger.warning('Pretrained model in [{:s}] is not existed, Skip it'.format(model_path))
-            return
-
-        self.logger.info('Loading pretrained model from [{:s}] ...'.format(model_path))
-        if isinstance(network, nn.DataParallel) or isinstance(network, nn.parallel.DistributedDataParallel):
-            network = network.module
-        network.load_state_dict(torch.load(model_path, map_location=lambda storage, loc: Util.set_device(storage)),
-                                strict=strict)
-
-    def train(self):
-        # val_log = self.val_step()
-        while self.epoch <= self.opt['train']['n_epoch'] and self.iter <= self.opt['train']['n_iter']:
-            self.epoch += 1
-            if self.opt['distributed']:
-                ''' sets the epoch for this sampler. When :attr:`shuffle=True`, this ensures all replicas use a different random ordering for each epoch '''
-                self.phase_loader.sampler.set_epoch(self.epoch)
-
-            train_log = self.train_step()
-
-            ''' save logged informations into log dict '''
-            train_log.update({'epoch': self.epoch, 'iters': self.iter})
-
-            ''' print logged informations to the screen and tensorboard '''
-            for key, value in train_log.items():
-                self.logger.info('{:5s}: {}\t'.format(str(key), value))
-            if self.epoch % self.opt['train']['save_checkpoint_epoch'] == 0:
-                self.logger.info('Saving the self at the end of epoch {:.0f}'.format(self.epoch))
-                self.save_everything()
-
-            if self.epoch % self.opt['train']['val_epoch'] == 0:
-                self.logger.info("\n\n\n------------------------------Validation Start------------------------------")
-                if self.val_loader is None:
-                    self.logger.warning('Validation stop where dataloader is None, Skip it.')
-                else:
-                    val_log = self.val_step()
-                    for key, value in val_log.items():
-                        self.logger.info('{:5s}: {}\t'.format(str(key), value))
-                self.logger.info("\n------------------------------Validation End------------------------------\n\n")
-        self.logger.info('Number of Epochs has reached the limit, End.')

@@ -95,4 +95,4 @@ Metrics: MSE, PSNR, MAE, PCC, SSIM.
 - **pandas error in LogTracker**: Use dict-based tracking, not DataFrame
 - **Path replacement bug**: Never `str.replace('wf','gt')` on full paths
 - **cuDNN**: Must be `torch.backends.cudnn.enabled = True`
-- **Checkpoint saving**: Controlled by `warmup_epochs` in `base_model.py`
+- **Checkpoint saving**: Controlled by `save_checkpoint_epoch` in `base_model.py`

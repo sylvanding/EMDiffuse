@@ -8,12 +8,8 @@ import pandas as pd
 import core.util as Util
 
 class InfoLogger():
-    """
-    use logging to record log, only work on GPU 0 by judging global_rank
-    """
     def __init__(self, opt):
         self.opt = opt
-        self.rank = opt['global_rank']
         self.phase = opt['phase']
 
         self.setup_logger(None, opt['path']['experiments_root'], opt['phase'], level=logging.INFO, screen=False)
@@ -21,10 +17,6 @@ class InfoLogger():
         self.infologger_ftns = {'info', 'warning', 'debug'}
 
     def __getattr__(self, name):
-        if self.rank != 0: # info only print on GPU 0.
-            def wrapper(info, *args, **kwargs):
-                pass
-            return wrapper
         if name in self.infologger_ftns:
             print_info = getattr(self.logger, name, None)
             def wrapper(info, *args, **kwargs):
@@ -56,13 +48,12 @@ class VisualWriter():
         log_dir = opt['path']['tb_logger']
         self.result_dir = opt['path']['results']
         enabled = opt['train']['tensorboard']
-        self.rank = opt['global_rank']
         self.task = opt['task']
 
         self.writer = None
         self.selected_module = ""
 
-        if enabled and self.rank==0:
+        if enabled:
             log_dir = str(log_dir)
 
             # Retrieve vizualization writer.
@@ -116,8 +107,9 @@ class VisualWriter():
             raise NotImplementedError('You must specify the context of name and result in save_current_results functions of model.')
 
     def close(self):
-        self.writer.close()
-        print('Close the Tensorboard SummaryWriter.')
+        if self.writer is not None:
+            self.writer.close()
+            print('Close the Tensorboard SummaryWriter.')
 
         
     def __getattr__(self, name):

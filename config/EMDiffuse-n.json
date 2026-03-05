@@ -2,7 +2,7 @@
     "name": "EMDiffuse-n", // experiments name
     "norm": true,
     "percent": false,
-    "gpu_ids": [0, 1], // gpu ids list, default is single 0
+    "gpu_ids": [0], // gpu ids list, default is single 0
     "seed" : -1, // random seed, seed <0 represents randomization not used
     "finetune_norm": false, // find the parameters to optimize
     "task" : "denoise",
@@ -38,7 +38,7 @@
                     "drop_last": true
                 },
                 "val_args":{ // arguments to initialize valid_dataloader, will overwrite the parameters in train_dataloader
-                    "batch_size": 10, // batch size in each gpu
+                    "batch_size": 8, // batch size in each gpu
                     "num_workers": 4,
                     "shuffle": false,
                     "pin_memory": true,

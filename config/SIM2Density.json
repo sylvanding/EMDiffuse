@@ -2,7 +2,7 @@
     "name": "SIM2Density",
     "norm": true,
     "percent": false,
-    "gpu_ids": [0, 1, 2, 3],
+    "gpu_ids": [0],
     "seed" : 42,
     "finetune_norm": false,
     "task" : "super_resolution",

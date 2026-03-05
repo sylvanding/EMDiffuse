@@ -101,6 +101,41 @@ def dict2str(opt, indent_l=1):
     return msg
 
 
+def _resolve_resume_path(resume_arg: str) -> str:
+    """Resolve --resume to a checkpoint prefix path.
+
+    Accepts:
+      - Explicit prefix:  .../checkpoint/200  (returns as-is)
+      - Experiment dir:    .../train_WF2Density_260304_001308
+        → auto-discovers latest epoch in checkpoint/ subfolder
+    """
+    import re
+    # If it already looks like a prefix (parent dir contains .pth files matching), use as-is
+    candidate = f"{resume_arg}_Network.pth"
+    if os.path.exists(candidate):
+        return resume_arg
+
+    # Try checkpoint/ subfolder
+    ckpt_dir = os.path.join(resume_arg, 'checkpoint')
+    if not os.path.isdir(ckpt_dir):
+        print(f'[WARNING] Cannot find checkpoint dir at {ckpt_dir}, using resume path as-is')
+        return resume_arg
+
+    epochs = set()
+    for fname in os.listdir(ckpt_dir):
+        m = re.match(r'^(\d+)_Network.*\.pth$', fname)
+        if m:
+            epochs.add(int(m.group(1)))
+    if not epochs:
+        print(f'[WARNING] No checkpoint files found in {ckpt_dir}')
+        return resume_arg
+
+    latest = max(epochs)
+    resolved = os.path.join(ckpt_dir, str(latest))
+    print(f'[INFO] Auto-resolved resume path: {resolved}  (epoch {latest})')
+    return resolved
+
+
 def parse(args):
     json_str = ''
     with open(args.config, 'r') as f:
@@ -113,6 +148,7 @@ def parse(args):
     opt['phase'] = args.phase
     if args.gpu is not None:
         opt['gpu_ids'] = [int(id) for id in args.gpu.split(',')]
+
     if args.batch is not None:
         opt['datasets'][opt['phase']]['dataloader']['args']['batch_size'] = args.batch
     if args.path is not None:
@@ -123,11 +159,10 @@ def parse(args):
         opt['model']['which_model']['args']['optimizers'][0]['lr'] = args.lr
     if args.step is not None:
         opt['model']['which_networks'][0]['args']['beta_schedule'][opt['phase']]['n_timestep'] = args.step
-    ''' set cuda environment '''
-    if len(opt['gpu_ids']) > 1:
-        opt['distributed'] = True
-    else:
-        opt['distributed'] = False
+    opt['distributed'] = False
+    opt['global_rank'] = 0
+    opt['local_rank'] = 0
+    opt['world_size'] = 1
 
     ''' update name '''
     if args.debug:
@@ -151,7 +186,7 @@ def parse(args):
             opt['path'][key] = os.path.join(experiments_root, path)
             mkdirs(opt['path'][key])
     if args.resume is not None:
-        opt['path']['resume_state'] = args.resume
+        opt['path']['resume_state'] = _resolve_resume_path(args.resume)
 
     ''' debug mode '''
     if 'debug' in opt['name']:
@@ -163,9 +198,16 @@ def parse(args):
             dst = os.path.join(opt['path']['code'], name)
             if os.path.exists(dst):
                 shutil.rmtree(dst)
-                shutil.copytree(name, dst)
-            # shutil.copytree(name,dst , ignore=shutil.ignore_patterns("*.pyc", "__pycache__"))
+            shutil.copytree(name, dst, ignore=shutil.ignore_patterns("*.pyc", "__pycache__"))
         if '.py' in name or '.sh' in name:
             shutil.copy(name, opt['path']['code'])
     opt['mean'] = args.mean
+
+    tile = getattr(args, 'tile', None)
+    if tile is not None:
+        opt['tile'] = tile
+        opt['tile_overlap'] = getattr(args, 'tile_overlap', 64)
+        opt['datasets'][opt['phase']]['which_dataset']['args']['patch_mode'] = False
+        opt['datasets'][opt['phase']]['which_dataset']['args']['tile_mode'] = True
+
     return dict_to_nonedict(opt)

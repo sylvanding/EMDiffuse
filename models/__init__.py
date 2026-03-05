@@ -1,8 +1,6 @@
 from core.praser import init_obj
 import torch
-import warnings
 from core.logger import VisualWriter, InfoLogger
-import core.praser as Praser
 import core.util as Util
 from data import define_dataloader
 
@@ -39,33 +37,17 @@ def define_metric(logger, metric_opt):
 
 
 def create_EMDiffuse(opt):
-    gpu=0
-    if 'local_rank' not in opt:
-        opt['local_rank'] = opt['global_rank'] = gpu
-    if opt['distributed']:
-        torch.cuda.set_device(int(opt['local_rank']))
-        print('using GPU {} for training'.format(int(opt['local_rank'])))
-        torch.distributed.init_process_group(backend='nccl',
-                                             init_method=opt['init_method'],
-                                             world_size=opt['world_size'],
-                                             rank=opt['global_rank'],
-                                             group_name='mtorch'
-                                             )
-    '''set seed and and cuDNN environment '''
-    torch.backends.cudnn.enabled = False
-    # warnings.warn('You have chosen to use cudnn for accleration. torch.backends.cudnn.enabled=True')
     Util.set_seed(opt['seed'])
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
 
-    ''' set logger '''
     phase_logger = InfoLogger(opt)
     phase_writer = VisualWriter(opt, phase_logger)
     phase_logger.info('Create the log file in directory {}.\n'.format(opt['path']['experiments_root']))
 
-    '''set networks and dataset'''
-    phase_loader, val_loader = define_dataloader(phase_logger, opt)  # val_loader is None if phase is test.
+    phase_loader, val_loader = define_dataloader(phase_logger, opt)
     networks = [define_network(phase_logger, opt, item_opt) for item_opt in opt['model']['which_networks']]
 
-    ''' set metrics, loss, optimizer and  schedulers '''
     metrics = [define_metric(phase_logger, item_opt) for item_opt in opt['model']['which_metrics']]
     losses = [define_loss(phase_logger, item_opt) for item_opt in opt['model']['which_losses']]
 

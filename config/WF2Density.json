@@ -2,7 +2,7 @@
     "name": "WF2Density",
     "norm": true,
     "percent": false,
-    "gpu_ids": [0, 1, 2, 3],
+    "gpu_ids": [0],
     "seed" : 42,
     "finetune_norm": false,
     "task" : "super_resolution",
@@ -29,7 +29,7 @@
                 }
             },
             "dataloader":{
-                "validation_split": 0.1,
+                "val_max_per_cell": 1,
                 "args":{
                     "batch_size": 8,
                     "num_workers": 8,
@@ -38,8 +38,8 @@
                     "drop_last": true
                 },
                 "val_args":{
-                    "batch_size": 4,
-                    "num_workers": 4,
+                    "batch_size": 8,
+                    "num_workers": 0,
                     "shuffle": false,
                     "pin_memory": true,
                     "drop_last": false
@@ -60,8 +60,8 @@
             },
             "dataloader":{
                 "args":{
-                    "batch_size": 8,
-                    "num_workers": 4,
+                    "batch_size": 64,
+                    "num_workers": 8,
                     "pin_memory": true
                 }
             }
@@ -80,7 +80,7 @@
                     "ema_decay": 0.9999
                 },
                 "optimizers": [
-                    { "lr": 5e-5, "weight_decay": 0}
+                    { "lr": 1e-5, "weight_decay": 0}
                 ]
             }
         },
@@ -105,15 +105,15 @@
                     "beta_schedule": {
                         "train": {
                             "schedule": "linear",
-                            "n_timestep": 2000,
+                            "n_timestep": 1000,
                             "linear_start": 1e-6,
                             "linear_end": 0.01
                         },
                         "test": {
                             "schedule": "linear",
                             "n_timestep": 1000,
-                            "linear_start": 1e-4,
-                            "linear_end": 0.09
+                            "linear_start": 1e-6,
+                            "linear_end": 0.01
                         }
                     }
                 }
@@ -130,9 +130,12 @@
     "train": {
         "n_epoch": 1e8,
         "n_iter": 1e8,
-        "val_epoch": 20,
-        "save_checkpoint_epoch": 20,
-        "log_iter": 1e4,
+        "val_epoch": 4,
+        "save_checkpoint_epoch": 100,
+        "log_iter": 500,
+        "max_val_images": 4,
+        "val_sample_steps": 200,
+        "val_gpu": null,
         "tensorboard" : true
     },
 

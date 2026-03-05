@@ -2,7 +2,7 @@
     "name": "EMDiffuse-r", // experiments name
     "norm": true,
     "percent": false,
-    "gpu_ids": [0, 1], // gpu ids list, default is single 0
+    "gpu_ids": [0], // gpu ids list, default is single 0
     "seed" : -1, // random seed, seed <0 represents randomization not used
     "finetune_norm": false, // find the parameters to optimize
     "task" : "denoise",

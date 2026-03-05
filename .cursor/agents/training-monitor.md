@@ -44,8 +44,9 @@ python run.py -p test -c config/WF2Density.json --gpu 0 -b 8 \
 - Training: 2000 timesteps, linear beta schedule
 - Inference: 1000 timesteps (configurable with `--step`)
 
-## Checkpoint Logic
-- Warmup phase (first `warmup_epochs`): save every 1/5 of warmup period
-- After warmup: save every `save_checkpoint_epoch` epochs
-- Validation: runs every `val_epoch` epochs after warmup
+## Checkpoint & Validation Logic
+- Checkpoint: save every `save_checkpoint_epoch` epochs
+- Validation: runs every `val_epoch` epochs, only 1 batch inference
+- TensorBoard val images: limited to `max_val_images` (default 4), step = epoch
 - EMA model updated every `ema_iter` iterations
+- `val_gpu`: set to a GPU index (e.g. 1) for async validation on separate GPU; null = sync on training GPU

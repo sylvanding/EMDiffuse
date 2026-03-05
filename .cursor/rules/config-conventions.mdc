@@ -22,4 +22,6 @@ alwaysApply: false
 - `inner_channel`: 64 for 5090 GPUs (32 for smaller GPUs)
 - `beta_schedule.train.n_timestep`: 2000
 - `beta_schedule.test.n_timestep`: 1000
-- `train.warmup_epochs`: controls checkpoint saving frequency
+- `train.save_checkpoint_epoch`: checkpoint saving frequency (in epochs)
+- `train.max_val_images`: max images logged to TensorBoard during validation (default 4)
+- `train.val_gpu`: GPU index for async validation (null = sync on training GPU)

@@ -2,7 +2,6 @@ import random
 import numpy as np
 import math
 import torch
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torchvision.utils import make_grid
 import os
 import cv2
@@ -60,28 +59,24 @@ def set_seed(seed, gl_seed=0):
         torch.backends.cudnn.benchmark = True
 
 
-def set_gpu(args, distributed=False, rank=0):
-    """ set parameter to gpu or ddp """
+def set_gpu(args):
     if args is None:
         return None
-    if distributed and isinstance(args, torch.nn.Module):
-        return DDP(args.cuda(), device_ids=[rank], output_device=rank, broadcast_buffers=True,
-                   find_unused_parameters=False)
-    elif isinstance(args, torch.Tensor):
+    if isinstance(args, torch.Tensor):
         return args.cuda(non_blocking=True)
     else:
         return args.cuda()
 
 
 def set_device(args, distributed=False, rank=0):
-    """ set parameter to gpu or cpu """
+    """ set parameter to gpu or cpu. distributed/rank kept for call-site compat but ignored. """
     if torch.cuda.is_available():
         if isinstance(args, list):
-            return (set_gpu(item, distributed, rank) for item in args)
+            return [set_gpu(item) for item in args]
         elif isinstance(args, dict):
-            return {key: set_gpu(args[key], distributed, rank) for key in args}
+            return {key: set_gpu(args[key]) for key in args}
         else:
-            args = set_gpu(args, distributed, rank)
+            args = set_gpu(args)
     return args
 
 

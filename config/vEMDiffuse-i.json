@@ -4,8 +4,7 @@
     "norm": true,
     "percent": false,
     "gpu_ids": [
-        0,
-        1
+        0
     ],
     // gpu ids list, default is single 0
     "seed": -1,
